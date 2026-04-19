@@ -282,6 +282,7 @@ sleep 3 && tmux capture-pane -t "$SESSION" -p | grep "started on"
   - 若 repo 在 `open_patches` 中：HEAD 的 Change-Id 必须匹配 open_patch（防止 push 了错误的 commit）
   - push 后必须能提取到 Gerrit Change URL
   - amend 场景：Change URL 的 changeNo 必须匹配 open_patch 的 changeNo（防止 Gerrit 误开新 Change）
+- **保留返回值**：每个仓库 push 成功后，记录 `push_to_gerrit` 返回的 `change_url`（完整 URL）和 `change_no`（纯数字），Phase 5 写入 JSON 时填到 `patch[i].gerrit_url` / `patch[i].gerrit_change_id` 两个字段（字段名必须严格一致，见 5.1）
 - **禁止通过 Bash 执行 `git push`** — 必须走 MCP 工具
 - push 失败时工具返回明确的下一步指令；**禁止自创 workaround**（如 `git push --force`、手动 clone 再 push）
 
@@ -313,6 +314,9 @@ rwt status
     {
       "repo": "<仓库相对路径，如 apps、nuttx>",
       "branch": "<branch>",
+      "commit": "<本地 commit hash，git rev-parse HEAD 的输出>",
+      "gerrit_change_id": "<push_to_gerrit 返回的 change_no，纯数字字符串，如 \"7553783\">",
+      "gerrit_url": "<push_to_gerrit 返回的 change_url，完整 URL，如 \"https://gerrit.pt.mioffice.cn/c/vela/apps/+/7553783\">",
       "files_changed": ["file1.c", "file2.h"]
     }
   ],
@@ -328,6 +332,18 @@ rwt status
 }
 ```
 
+**字段名硬约束（违反会导致 ai-agent-service 解析失败、平台不显示 patch 信息）：**
+
+- patch 对象字段名必须**严格**使用 `repo` / `branch` / `commit` / `gerrit_change_id` / `gerrit_url` / `files_changed`
+- **禁止**自行发明或改名：
+  - ❌ `gerrit_change` → ✅ `gerrit_url`
+  - ❌ `commit_hash` → ✅ `commit`
+  - ❌ `change_no` / `changeNo` → ✅ `gerrit_change_id`
+  - ❌ `change_url` / `changeUrl` → ✅ `gerrit_url`
+- `gerrit_url` 和 `gerrit_change_id` 的值必须来自 Phase 4.2 的 `push_to_gerrit` 返回值（`change_url` → `gerrit_url`、`change_no` → `gerrit_change_id`），**禁止从 open_patches、输入 JSON 或记忆中编造**
+- 若 push 失败或跳过：`gerrit_url` 和 `gerrit_change_id` 置为空串 `""`（不要填 `null`、不要省略字段、更不要编造 URL）
+
+**语义说明：**
 - `patch`：数组，每个元素对应一个仓库。修复成功填充，失败则 `null`
 - `diagnosis`：始终填充
 
