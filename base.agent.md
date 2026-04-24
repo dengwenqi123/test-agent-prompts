@@ -217,6 +217,20 @@ sleep 3 && tmux capture-pane -t "$SESSION" -p | grep "started on"
 3. **修改前验证文件存在**：`git ls-tree {target_branch} {file_path}`
 4. 调用 `code-style` skill 检查并自动修复风格问题
 
+### 3.2.1 查原作者（推荐在关键改动完成后调用一次）
+
+对"修改已有函数 / 删除代码"这类非纯新增的改动，完成 Edit 后可调用
+`git_blame_changed_lines` MCP 工具：
+
+- 调用示例：`git_blame_changed_lines(repo_path="<repo>", file_path="", include_staged=True, include_unstaged=True)`
+- 输出格式：每个受影响的 HEAD 行给出 `commit / author / time / summary / 原内容`
+- 纯新增（append 或新文件）会被自动跳过（没有 HEAD 行可 blame）
+- 用途：
+  - 在 commit message / analysis_report.md 中准确描述 "修改了 XX commit 引入的逻辑"
+  - 识别反向冲突：如果 blame 显示你要删的代码是 `open_patches` 刚加的，可能改错方向
+  - 明确 reviewer（git blame 的作者大概率是这块代码的维护者）
+- **不要**把它当作理解代码的唯一依据 —— 它只告诉你"谁写的"，不告诉你"为什么写"
+
 ### 3.3 AI 自检
 
 修复后必须通过以下检查：
