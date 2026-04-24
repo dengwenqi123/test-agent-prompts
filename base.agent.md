@@ -246,7 +246,7 @@ sleep 3 && tmux capture-pane -t "$SESSION" -p | grep "started on"
   - `git add <files>` → `git commit --signoff` (+ `--amend` 若 `amend=True`)
   - `message` 必须包含 JIRA ID（如 `VELAPLATFO-89716`），工具会拒绝无 JIRA 的消息
   - 自动 `--signoff`；如果 commit-msg hook 配置了 Change-Id，会自动追加 footer（非必需）
-- `amend=True` 的使用场景：**仅限本 session 内**的自我修正（发现漏改一个文件、typo 等）。不要跨 session 使用，也不再与 `open_patches` 耦合
+- `amend=True` 的使用场景：**仅限本 session 内**的自我修正（发现漏改一个文件、typo 等）。不要跨 session 使用
 - 工具硬校验（失败时会返回明确的下一步指令）：
   - 路径必须在 workspace 内（不允许修改 source_root）
   - 仓库必须已 promote（若未 promote，工具提示"先调 promote_repo"）
