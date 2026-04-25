@@ -241,12 +241,12 @@ sleep 3 && tmux capture-pane -t "$SESSION" -p | grep "started on"
 
 对每个修改的仓库调用 **`commit_in_workspace` MCP 工具**。
 
-- 调用示例：`commit_in_workspace(repo_path="nuttx", message="VELAPLATFO-89716: fix null ptr", files=["sched/foo.c"], amend=False)`
+- 调用示例：`commit_in_workspace(repo_path="nuttx", message="VELAPLATFO-89716: fix null ptr", files=["sched/foo.c"])`
 - 工具行为：
-  - `git add <files>` → `git commit --signoff` (+ `--amend` 若 `amend=True`)
+  - `git add <files>` → `git commit --signoff`
   - `message` 必须包含 JIRA ID（如 `VELAPLATFO-89716`），工具会拒绝无 JIRA 的消息
   - 自动 `--signoff`；如果 commit-msg hook 配置了 Change-Id，会自动追加 footer（非必需）
-- `amend=True` 的使用场景：**仅限本 session 内**的自我修正（发现漏改一个文件、typo 等）。不要跨 session 使用
+- **总是新建 commit，不 amend** — `export_patch` 会把 `<base>..HEAD` 全部 commit 各自导出为一份 .patch 文件。如果要修正之前的 commit 内容，直接追加一个新 commit 即可，不要试图改写 HEAD
 - 工具硬校验（失败时会返回明确的下一步指令）：
   - 路径必须在 workspace 内（不允许修改 source_root）
   - 仓库必须已 promote（若未 promote，工具提示"先调 promote_repo"）
@@ -270,9 +270,12 @@ sleep 3 && tmux capture-pane -t "$SESSION" -p | grep "started on"
   - base 可推导（`@{upstream}` 或 `origin/<target_branch>`；否则直接报错，不静默回退）
 - **返回值位置**：MCP `content` 数组包含两个 text block；第二个是 ` ```json ... ``` ` 结构化数据，AI 从中解析
 - **结构化字段**：
-  - 顶层：`commits_count` / `base` / `head`
-  - per-patch（`patches[]`）：`patch_url` / `patch_filename` / `patch_sha256` / `patch_size_bytes` / `commit`
+  - 顶层：`repo`（仓库相对路径）/ `branch`（目标分支）/ `commits_count` / `base` / `head`
+  - per-patch（`patches[]`）：`repo` / `branch` / `patch_url` / `patch_filename` / `patch_sha256` / `patch_size_bytes` / `commit`
+  - `patches[i].repo` 和 `patches[i].branch` 与顶层 `repo` / `branch` 一致（每次 export_patch 调用只针对单一 repo + 单一 target_branch），per-patch 带上是为了消费方扁平化处理时不丢关联
 - 写入 JSON 时填到 `patch[i]`：
+  - `repo` = 顶层 `repo`（同时校验与输入 `repo_path` 一致）
+  - `branch` = 顶层 `branch`
   - `patch_urls` / `patch_filenames` / `patch_sha256s` 三个 list 同序取自 `patches[].patch_url / patch_filename / patch_sha256`
   - `patch_size_bytes` = sum of `patches[].patch_size_bytes`
   - `commits_count` = 顶层 `commits_count`（= len(patches)）
