@@ -296,10 +296,33 @@ git checkout -b ai-fix/crash-null-ptr-ds-20260425-222720-001
 
 对每个修改的仓库调用 **`commit_in_workspace` MCP 工具**。
 
-- 调用示例：`commit_in_workspace(repo_path="nuttx", message="VELAPLATFO-89716: fix null ptr", files=["sched/foo.c"])`
+**commit message 格式（硬约束）**：
+- **subject（首行）只写纯描述**，**严禁**以 JIRA ID 开头（`VELA-123: xxx` / `VELA-123, xxx` / `VELA-123- xxx` 三种都会被工具拒）
+- JIRA ID 放在 message **最后一行作为 trailer**，格式：`JIRA: VELA-xxxxx`
+- 理由：平台的 `_normalize_ai_commit_msg` 会识别 `^<JIRA>[:,\-]` 前缀并剥离，subject 里保留的 JIRA 号会被挪到 trailer，导致最终 commit subject 变成 "只剩纯描述" 的形态且顺序错乱。AI 直接按新格式写最稳妥。
+
+**推荐写法**：
+```
+fix null ptr in sched_foo
+
+Root cause: <一两句根因>
+Fix: <一两句修复>
+
+JIRA: VELAPLATFO-89716
+```
+
+调用示例：
+```python
+commit_in_workspace(
+    repo_path="nuttx",
+    message="fix null ptr in sched_foo\n\nRoot cause: task->tcb was dereferenced without NULL check.\n\nJIRA: VELAPLATFO-89716",
+    files=["sched/foo.c"],
+)
+```
+
 - 工具行为：
   - `git add <files>` → `git commit --signoff`
-  - `message` 必须包含 JIRA ID（如 `VELAPLATFO-89716`），工具会拒绝无 JIRA 的消息
+  - `message` 必须包含 JIRA ID 且 **subject 不能以 JIRA 开头**，两个条件工具都会校验
   - 自动 `--signoff`；如果 commit-msg hook 配置了 Change-Id，会自动追加 footer（非必需）
 - **总是新建 commit，不 amend** — `export_patch` 会把 `<base>..HEAD` 全部 commit 各自导出为一份 .patch 文件。如果要修正之前的 commit 内容，直接追加一个新 commit 即可，不要试图改写 HEAD
 - 工具硬校验（失败时会返回明确的下一步指令）：
