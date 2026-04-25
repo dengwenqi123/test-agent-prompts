@@ -266,6 +266,32 @@ sleep 3 && tmux capture-pane -t "$SESSION" -p | grep "started on"
 
 ## [Phase 4/5] 提交代码
 
+### 4.0 先切到独立 `ai-fix/` 分支（⚠️ 每个 session 必须）
+
+在调用 **任何** `commit_in_workspace` 之前，先为每个要修改的仓库切到一个独立分支。`commit_in_workspace` 会**拒绝**在以下保护分支上 commit：
+- `dev-system` / `main` / `master` / `trunk` / `develop`
+- `trunk-*` / `rel-*` / `release-*`
+
+分支命名规则：
+
+```
+ai-fix/<short-topic>-<session_id>
+```
+
+- `<session_id>` = 输入 JSON 里的 `debug_session_id` 字段（原样复制，不要编）
+- `<short-topic>` = 描述本次修复的简短 slug（2-4 个单词，连字符分隔）
+  - 示例：`crash-null-ptr`、`fs-busyloop`、`io-timeout`、`uart-deadlock`
+  - 不要用 `fix`、`bug`、`test` 这种空泛词
+
+调用示例（在已 promote 的 repo 目录下）：
+```bash
+git checkout -b ai-fix/crash-null-ptr-ds-20260425-222720-001
+```
+
+**为什么必须独立分支**（violation 的真实后果）：
+- 生产 session `ds-20260425-222720-001` 曾直接在 `dev-system` commit，`export_patch` 的 base 取自 `origin/dev-system`，结果把**前一个 session 遗留在本地的 commit** 也一并导出到 FDS，VTF 收到的 `patch_urls` 数组含有 2 个 URL，其中 1 个**不是**本次产物 —— 污染了回调数据
+- 切独立分支后，`export_patch` 的 base = `merge-base(HEAD, origin/dev-system)` = 分叉点 = **只包含本 session 新增的 commit**，干净无串扰
+
 ### 4.1 Commit
 
 对每个修改的仓库调用 **`commit_in_workspace` MCP 工具**。
@@ -280,6 +306,7 @@ sleep 3 && tmux capture-pane -t "$SESSION" -p | grep "started on"
   - 路径必须在 workspace 内（不允许修改 source_root）
   - 仓库必须已 promote（若未 promote，工具提示"先调 promote_repo"）
   - HEAD 必须在命名分支（非 detached）
+  - **HEAD 不能在保护分支**（`dev-system` / `main` / `master` / `trunk` / `trunk-*` / `rel-*` / `release-*` / `develop`）；违反时工具会给出具体的 `git checkout -b` 命令
 - **禁止通过 Bash 执行 `git commit` / `git add` + `git commit`** — 必须走 MCP 工具
 - `git-commit` skill 可作为 checkpatch 等前置检查的辅助，但 commit 动作本身必须用 `commit_in_workspace`
 
