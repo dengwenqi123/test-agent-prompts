@@ -326,9 +326,11 @@ git checkout -b ai-fix/crash-null-ptr-ds-20260425-222720-001
   - base 可推导（`@{upstream}` 或 `origin/<target_branch>`；否则直接报错，不静默回退）
 - **返回值位置**：MCP `content` 数组包含两个 text block；第二个是 ` ```json ... ``` ` 结构化数据，AI 从中解析
 - **结构化字段**：
-  - 顶层：`repo`（仓库相对路径）/ `branch`（目标分支）/ `commits_count` / `base` / `head`
+  - 顶层：`repo`（仓库相对路径）/ `branch`（目标分支）/ `commits_count` / `base` / `head` / `owners`
   - per-patch（`patches[]`）：`repo` / `branch` / `patch_url` / `patch_filename` / `patch_sha256` / `patch_size_bytes` / `commit`
   - `patches[i].repo` 和 `patches[i].branch` 与顶层 `repo` / `branch` 一致（每次 export_patch 调用只针对单一 repo + 单一 target_branch），per-patch 带上是为了消费方扁平化处理时不丢关联
+  - **`owners`** 是该 repo 本次修改所触达的 git-blame 原作者（去重按 email），结构：
+    `[{"name": "...", "email": "...", "affected_files": [...]}, ...]`。工具已自动跑 blame 聚合好，**不要**再单独调 `git_blame_changed_lines`，直接把这个数组整段复制到 `patch[i].owners`
 - 写入 JSON 时填到 `patch[i]`：
   - `repo` = 顶层 `repo`（同时校验与输入 `repo_path` 一致）
   - `branch` = 顶层 `branch`
@@ -336,6 +338,7 @@ git checkout -b ai-fix/crash-null-ptr-ds-20260425-222720-001
   - `patch_size_bytes` = sum of `patches[].patch_size_bytes`
   - `commits_count` = 顶层 `commits_count`（= len(patches)）
   - `export_status` = `"success"`；失败时填 `"failed"` 并在 `export_error` 写原因
+  - **`owners`** = 顶层 `owners` 数组原样复制（可能为 `[]`：纯新增文件 / 无历史 / blame 失败，都正常）
 - 多 commit：`patches` 数组按 format-patch 顺序返回（最老 commit 在前），所有 URL 全部保留
 - **禁止通过 Bash 执行 `git push` / `git format-patch`** — 必须走 MCP 工具
 - 失败时工具返回明确下一步指令；**禁止自创 workaround**
@@ -375,7 +378,11 @@ rwt status
       "patch_size_bytes": 1234,
       "commits_count": 1,
       "export_status": "success",
-      "files_changed": ["file1.c", "file2.h"]
+      "files_changed": ["file1.c", "file2.h"],
+      "owners": [
+        {"name": "Alice Wang", "email": "alicewang@xiaomi.com", "affected_files": ["file1.c"]},
+        {"name": "Bob Lee",    "email": "boblee@xiaomi.com",    "affected_files": ["file1.c", "file2.h"]}
+      ]
     }
   ],
   "diagnosis": {
@@ -392,7 +399,8 @@ rwt status
 
 **字段名硬约束（违反会导致 ai-agent-service 解析失败、平台不显示 patch 信息）：**
 
-- patch 对象字段名必须**严格**使用 `repo` / `branch` / `commit` / `patch_urls` / `patch_filenames` / `patch_sha256s` / `patch_size_bytes` / `commits_count` / `export_status` / `files_changed`
+- patch 对象字段名必须**严格**使用 `repo` / `branch` / `commit` / `patch_urls` / `patch_filenames` / `patch_sha256s` / `patch_size_bytes` / `commits_count` / `export_status` / `files_changed` / `owners`
+- `owners` 必须是 **list of object**，每个 object 含 `name` / `email` / `affected_files`（list of 相对路径）三个字段；**不要**把 `owners` 写成 list of string 或 dict of email→files
 - `patch_urls` / `patch_filenames` / `patch_sha256s` 必须是 **list**（即使只有 1 个 commit 也用 list），三者长度相等，顺序与 format-patch 一致（最老 commit 在前）
 - **禁止**自行发明或改名：
   - ❌ `patch_url` (单数) → ✅ `patch_urls` (list)
