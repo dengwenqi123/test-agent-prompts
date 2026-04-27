@@ -211,6 +211,11 @@ sleep 3 && tmux capture-pane -t "$SESSION" -p | grep "started on"
 ⚠️ **严禁**：
 - 在 source_root 下执行 `git clone`、`mv`、`repo sync`
 - 修改 source_root 下的任何文件或目录结构
+- **修改 VTF 引擎代码**（测试框架共享基础设施）：
+  - `tests/tools/vtf/lib/**` / `tests/tools/vtf/engine/**` / `tests/tools/vtf/container/**`
+  - `tests/tools/vtf/configs/**` / `tests/tools/vtf/docs/**`
+  - `tests/tools/engine/**`
+  - 本 Agent **只改被测程序和 pytest 用例脚本**；如根因定位到 VTF 引擎，进 Phase 5 报 `vtf_engine_bug`，不要自己动手修框架
 
 ### 3.2 代码修复
 
@@ -374,15 +379,16 @@ commit_in_workspace(
   - base 可推导（`@{upstream}` 或 `origin/<target_branch>`；否则直接报错，不静默回退）
 - **返回值位置**：MCP `content` 数组包含两个 text block；第二个是 ` ```json ... ``` ` 结构化数据，AI 从中解析
 - **结构化字段**：
-  - 顶层：`repo`（仓库相对路径）/ `branch`（目标分支）/ `commits_count` / `base` / `base_remote` / `base_ref` / `head` / `owners` / `owners_reason`
+  - 顶层：`repo`（**Gerrit project 全名**，如 `vela/apps`、`vela/vendor/unqlite`）/ `workspace_path`（AI 传入的 workspace 相对路径，仅调试用）/ `branch`（目标分支）/ `commits_count` / `base` / `base_remote` / `base_ref` / `head` / `owners` / `owners_reason`
   - per-patch（`patches[]`）：`repo` / `branch` / `patch_url` / `patch_filename` / `patch_sha256` / `patch_size_bytes` / `commit`
   - `patches[i].repo` 和 `patches[i].branch` 与顶层 `repo` / `branch` 一致（每次 export_patch 调用只针对单一 repo + 单一 target_branch），per-patch 带上是为了消费方扁平化处理时不丢关联
+  - **`repo` 是 Gerrit project 路径**（从 `git config remote.<base_remote>.url` 解析，形如 `vela/apps`）。不是 workspace 相对路径、也不是 manifest path。**原样**写入 `patch[i].repo`，不要自己截断、加前缀、替换分隔符
   - **`base_remote` / `base_ref`**：base commit 是从哪个 remote / ref 推导的。值例如 `"vela"` + `"vela/dev-system"`；repo-manifest 的 `m/<branch>` 没有真实 remote → `base_remote=null`, `base_ref="m/<branch>"`
   - **`owners`** 是该 repo 本次修改所触达的 git-blame 原作者（去重按 email），结构：
     `[{"name": "...", "email": "...", "affected_files": [...]}, ...]`。工具已自动跑 blame 聚合好，**不要**再单独调 `git_blame_changed_lines`，直接把这个数组整段复制到 `patch[i].owners`
   - **`owners_reason`** 说明 owners 为什么是这个值（`"blame_success"` / `"all_changes_are_new_files_no_prior_author"` / `"blame_failed: <msg>"`），AI 无需特殊处理，**原样**复制到 `patch[i].owners_reason` 方便调用方诊断
 - 写入 JSON 时填到 `patch[i]`：
-  - `repo` = 顶层 `repo`（同时校验与输入 `repo_path` 一致）
+  - `repo` = 顶层 `repo`（Gerrit project 全名，**不**要校验它与 `repo_path` 一致 — 它们本就不一样）
   - `branch` = 顶层 `branch`
   - `patch_urls` / `patch_filenames` / `patch_sha256s` 三个 list 同序取自 `patches[].patch_url / patch_filename / patch_sha256`
   - `patch_size_bytes` = sum of `patches[].patch_size_bytes`
@@ -422,7 +428,7 @@ rwt status
   "status": "patch_generated | failed_to_fix",
   "patch": [
     {
-      "repo": "<仓库相对路径，如 apps、nuttx>",
+      "repo": "<Gerrit project 全名，如 vela/apps、vela/nuttx、vela/vendor/unqlite — 直接取 export_patch 返回的顶层 repo>",
       "branch": "<branch>",
       "commit": "<本地 commit hash，git rev-parse HEAD 的输出>",
       "patch_urls": ["https://...fds.../sessions/<sid>/patches/nuttx/nuttx__0001-xxx.patch"],
