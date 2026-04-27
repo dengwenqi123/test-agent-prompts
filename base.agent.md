@@ -215,8 +215,28 @@ sleep 3 && tmux capture-pane -t "$SESSION" -p | grep "started on"
 ### 3.2 代码修复
 
 1. **最小修改** — 只改必须改的，不做无关重构
-3. **修改前验证文件存在**：`git ls-tree {target_branch} {file_path}`
-4. 调用 `code-style` skill 检查并自动修复风格问题
+2. **修改前验证文件存在**：`git ls-tree {target_branch} {file_path}`
+3. 调用 `code-style` skill 检查并自动修复风格问题
+
+**🛑 硬约束：被测程序源码在 base 里缺失 → 立刻 abort，禁止重建（N1）**
+
+修复前必查：被测试用例调用的程序源码（如 `apps/testing/<name>/<name>_main.c`）是否存在于 `<base_ref>` HEAD：
+
+```bash
+# 以 crash_test 为例；remote/ref 从 `git branch -r` / `git remote` 拿
+git -C {repo_dir} ls-tree <vela/dev-system> testing/crash_test
+```
+
+如果输出为空（整个目录在 base 上不存在），**这不是"修 bug"，是"源码缺失"**：
+- **禁止**用 `Write` 工具从零创建 `<name>_main.c` / `Kconfig` / `Makefile` / `Make.defs` / `CMakeLists.txt` 重建程序
+- **禁止**从其他 session / 其他 branch / 记忆里复制旧版代码
+- **直接进入 Phase 5**，写 `ai_debug_result.json` 时：
+  - `status = "failed_to_fix"`
+  - `diagnosis.root_cause = "source_missing_on_base: <path> not in <base_ref>"`
+  - `diagnosis.confidence = "high"`
+  - `patch = []`
+
+理由：被测程序从 base HEAD 里消失通常说明 testcase 和生产分支 desync（测试用例引用了未合入 / 已删除的代码）。AI 凭空重建出的版本大概率与真实意图不符，交付后反而掩盖 desync 问题。应当把这类情况抛回平台，由人工判断是合入代码还是摘掉 testcase。
 
 ### 3.2.1 查原作者（推荐在关键改动完成后调用一次）
 
@@ -333,6 +353,11 @@ commit_in_workspace(
 - **禁止通过 Bash 执行 `git commit` / `git add` + `git commit`** — 必须走 MCP 工具
 - `git-commit` skill 可作为 checkpatch 等前置检查的辅助，但 commit 动作本身必须用 `commit_in_workspace`
 
+**被 gitignore / info/exclude 挡住的文件（如 rwt 自动生成的 `/testing` 规则）**：
+- **不要**自己去 `Bash("git add -f ...")` 预处理 staging
+- **不要**去修改 `source_root` 下的 `.repo/projects/<repo>.git/worktrees/*/info/exclude`（严禁！）
+- **直接把文件名放进 `commit_in_workspace` 的 `files` 参数**即可 — 工具检测到 `"ignored by"` 会自动 `-f` 重试。这是唯一合法的 workaround 方式。
+
 ### 4.2 导出 Patch
 
 **导出由 AI 完成，必须使用 `export_patch` MCP 工具**，同 repo 每次 commit 后立即调用。
@@ -349,11 +374,13 @@ commit_in_workspace(
   - base 可推导（`@{upstream}` 或 `origin/<target_branch>`；否则直接报错，不静默回退）
 - **返回值位置**：MCP `content` 数组包含两个 text block；第二个是 ` ```json ... ``` ` 结构化数据，AI 从中解析
 - **结构化字段**：
-  - 顶层：`repo`（仓库相对路径）/ `branch`（目标分支）/ `commits_count` / `base` / `head` / `owners`
+  - 顶层：`repo`（仓库相对路径）/ `branch`（目标分支）/ `commits_count` / `base` / `base_remote` / `base_ref` / `head` / `owners` / `owners_reason`
   - per-patch（`patches[]`）：`repo` / `branch` / `patch_url` / `patch_filename` / `patch_sha256` / `patch_size_bytes` / `commit`
   - `patches[i].repo` 和 `patches[i].branch` 与顶层 `repo` / `branch` 一致（每次 export_patch 调用只针对单一 repo + 单一 target_branch），per-patch 带上是为了消费方扁平化处理时不丢关联
+  - **`base_remote` / `base_ref`**：base commit 是从哪个 remote / ref 推导的。值例如 `"vela"` + `"vela/dev-system"`；repo-manifest 的 `m/<branch>` 没有真实 remote → `base_remote=null`, `base_ref="m/<branch>"`
   - **`owners`** 是该 repo 本次修改所触达的 git-blame 原作者（去重按 email），结构：
     `[{"name": "...", "email": "...", "affected_files": [...]}, ...]`。工具已自动跑 blame 聚合好，**不要**再单独调 `git_blame_changed_lines`，直接把这个数组整段复制到 `patch[i].owners`
+  - **`owners_reason`** 说明 owners 为什么是这个值（`"blame_success"` / `"all_changes_are_new_files_no_prior_author"` / `"blame_failed: <msg>"`），AI 无需特殊处理，**原样**复制到 `patch[i].owners_reason` 方便调用方诊断
 - 写入 JSON 时填到 `patch[i]`：
   - `repo` = 顶层 `repo`（同时校验与输入 `repo_path` 一致）
   - `branch` = 顶层 `branch`
@@ -362,6 +389,9 @@ commit_in_workspace(
   - `commits_count` = 顶层 `commits_count`（= len(patches)）
   - `export_status` = `"success"`；失败时填 `"failed"` 并在 `export_error` 写原因
   - **`owners`** = 顶层 `owners` 数组原样复制（可能为 `[]`：纯新增文件 / 无历史 / blame 失败，都正常）
+  - **`owners_reason`** = 顶层 `owners_reason` 原样复制（字符串）
+  - **`base_remote`** = 顶层 `base_remote`（字符串 or `null`）
+  - **`base_ref`** = 顶层 `base_ref`（字符串 or `null`）
 - 多 commit：`patches` 数组按 format-patch 顺序返回（最老 commit 在前），所有 URL 全部保留
 - **禁止通过 Bash 执行 `git push` / `git format-patch`** — 必须走 MCP 工具
 - 失败时工具返回明确下一步指令；**禁止自创 workaround**
