@@ -243,7 +243,7 @@ git -C {repo_dir} ls-tree <vela/dev-system> testing/crash_test
 
 理由：被测程序从 base HEAD 里消失通常说明 testcase 和生产分支 desync（测试用例引用了未合入 / 已删除的代码）。AI 凭空重建出的版本大概率与真实意图不符，交付后反而掩盖 desync 问题。应当把这类情况抛回平台，由人工判断是合入代码还是摘掉 testcase。
 
-### 3.2.1 查原作者（推荐在关键改动完成后调用一次）
+### 3.2.1 查修改行的原作者（可选，仅用于理解改动背景）
 
 对"修改已有函数 / 删除代码"这类非纯新增的改动，完成 Edit 后可调用
 `git_blame_changed_lines` MCP 工具：
@@ -251,11 +251,10 @@ git -C {repo_dir} ls-tree <vela/dev-system> testing/crash_test
 - 调用示例：`git_blame_changed_lines(repo_path="<repo>", file_path="", include_staged=True, include_unstaged=True)`
 - 输出格式：每个受影响的 HEAD 行给出 `commit / author / time / summary / 原内容`
 - 纯新增（append 或新文件）会被自动跳过（没有 HEAD 行可 blame）
-- 用途：
+- 用途**仅限**理解改动背景：
   - 在 commit message / analysis_report.md 中准确描述 "修改了 XX commit 引入的逻辑"
   - 识别反向冲突：如果 blame 显示你要删的代码是最近刚加的，可能改错方向
-  - 明确 reviewer（git blame 的作者大概率是这块代码的维护者）
-- **不要**把它当作理解代码的唯一依据 —— 它只告诉你"谁写的"，不告诉你"为什么写"
+- ⚠️ **不要用它找"owner"** — callback 里的 `owners` 字段由 `export_patch` 自动生成（算法是"最近非 bot 提交者"，语义是"近期维护者"），**不是** blame 结果。AI 无需再手动查 owner；`git_blame_changed_lines` 只是理解代码用的
 
 ### 3.3 AI 自检
 
@@ -384,9 +383,16 @@ commit_in_workspace(
   - `patches[i].repo` 和 `patches[i].branch` 与顶层 `repo` / `branch` 一致（每次 export_patch 调用只针对单一 repo + 单一 target_branch），per-patch 带上是为了消费方扁平化处理时不丢关联
   - **`repo` 是 Gerrit project 路径**（从 `git config remote.<base_remote>.url` 解析，形如 `vela/apps`）。不是 workspace 相对路径、也不是 manifest path。**原样**写入 `patch[i].repo`，不要自己截断、加前缀、替换分隔符
   - **`base_remote` / `base_ref`**：base commit 是从哪个 remote / ref 推导的。值例如 `"vela"` + `"vela/dev-system"`；repo-manifest 的 `m/<branch>` 没有真实 remote → `base_remote=null`, `base_ref="m/<branch>"`
-  - **`owners`** 是该 repo 本次修改所触达的 git-blame 原作者（去重按 email），结构：
-    `[{"name": "...", "email": "...", "affected_files": [...]}, ...]`。工具已自动跑 blame 聚合好，**不要**再单独调 `git_blame_changed_lines`，直接把这个数组整段复制到 `patch[i].owners`
-  - **`owners_reason`** 说明 owners 为什么是这个值（`"blame_success"` / `"all_changes_are_new_files_no_prior_author"` / `"blame_failed: <msg>"`），AI 无需特殊处理，**原样**复制到 `patch[i].owners_reason` 方便调用方诊断
+  - **`owners`** 是该 repo 本次变更文件的**最近非 bot 提交者**（去重按 email），结构：
+    `[{"name": "...", "email": "...", "affected_files": [...]}, ...]`。
+    - 算法：对每个变更文件跑 `git log -1 <base> -- <file>` 取最近作者；若命中 bot 邮箱（`ai-agent@` / `bot@` / `noreply@` / `vela-autotest` 等）则往前走到第一个非 bot；若文件在 `base` 不存在（AI 新建），向上最多 3 层父目录做 fallback
+    - 用途：通知给"**近期维护者**"，用于 code review / 关联工单，**不是**原始作者
+    - 工具已自动聚合好，**不要**再单独调 `git_blame_changed_lines`；直接把这个数组整段复制到 `patch[i].owners`
+  - **`owners_reason`** 说明 owners 为什么是这个值，三取值：
+    - `"recent_commit_authors"`：正常命中最近 commit 作者
+    - `"no_non_bot_author_in_history_or_parent_dirs"`：每个变更文件及其父目录历史都只有 bot 作者 / 无历史
+    - `"owner_lookup_failed: <msg>"`：内部异常（极少见）
+    - AI 无需特殊处理，**原样**复制到 `patch[i].owners_reason` 方便调用方诊断
 - 写入 JSON 时填到 `patch[i]`：
   - `repo` = 顶层 `repo`（Gerrit project 全名，**不**要校验它与 `repo_path` 一致 — 它们本就不一样）
   - `branch` = 顶层 `branch`
@@ -394,7 +400,7 @@ commit_in_workspace(
   - `patch_size_bytes` = sum of `patches[].patch_size_bytes`
   - `commits_count` = 顶层 `commits_count`（= len(patches)）
   - `export_status` = `"success"`；失败时填 `"failed"` 并在 `export_error` 写原因
-  - **`owners`** = 顶层 `owners` 数组原样复制（可能为 `[]`：纯新增文件 / 无历史 / blame 失败，都正常）
+  - **`owners`** = 顶层 `owners` 数组原样复制（可能为 `[]`：文件及父目录历史全是 bot / 完全无历史 / 内部异常，都正常）
   - **`owners_reason`** = 顶层 `owners_reason` 原样复制（字符串）
   - **`base_remote`** = 顶层 `base_remote`（字符串 or `null`）
   - **`base_ref`** = 顶层 `base_ref`（字符串 or `null`）
