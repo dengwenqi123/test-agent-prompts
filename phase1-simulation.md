@@ -23,12 +23,26 @@ simulation: non-LLM pipeline smoke test, no real defect analysis performed
 
 ### 执行步骤（照做）
 
+**0. 确定 base ref（⚠️ 不要硬编码 `vela/dev-system`）**
+
+不同产品线的 remote 名和分支名不同（如 `vela/dev-system`、`miui/trunk-26rc01`、repo-manifest 的 `m/<branch>`），必须在运行时从仓库实际配置发现，**禁止**写死 `vela/dev-system`：
+
+```bash
+git -C {source_root}/tests branch -r
+```
+
+按下列优先级选一个解析得到的 base ref（记为 `<base_ref>`，供后续步骤复用）：
+1. 若 notify 上下文给了分支 `{branch}`，优先用匹配它的远程分支：先试 `<remote>/{branch}`（remote 名取 `git remote` 的第一个非 manifest remote，如 `vela` / `miui`），再试 repo-manifest 的 `m/{branch}` 或 `m/vela-{branch}`。
+2. 否则取 `git branch -r` 输出里第一个真实远程跟踪分支（跳过 `*/HEAD ->` 这类符号引用）。
+
+用 `git rev-parse <base_ref>` 确认能解析（非空）后再继续。
+
 **1. 定位改动目标**
 
 用 `git ls-tree` 列出 `testcases/kvtest/` 下的真实文件（不要 `find`，不要 `ls` workspace symlink）：
 
 ```bash
-git -C {source_root}/tests ls-tree -r --name-only vela/dev-system testcases/kvtest/ | head -10
+git -C {source_root}/tests ls-tree -r --name-only <base_ref> testcases/kvtest/ | head -10
 ```
 
 挑**第一个 `.c` 文件**作为目标。记下相对 `tests` 仓库根的路径，例如 `testcases/kvtest/foo.c`。
@@ -36,10 +50,10 @@ git -C {source_root}/tests ls-tree -r --name-only vela/dev-system testcases/kvte
 **2. 验证文件存在于 base**（N1 前置）
 
 ```bash
-git -C {source_root}/tests ls-tree vela/dev-system testcases/kvtest/<file>.c
+git -C {source_root}/tests ls-tree <base_ref> testcases/kvtest/<file>.c
 ```
 
-如果为空（不存在）→ 换一个 `.c` 文件；若 `testcases/kvtest/` 整个目录在 base 上都不存在 → 进 Phase 5 报 `status=failed_to_fix`, `diagnosis.root_cause="source_missing_on_base: testcases/kvtest not in vela/dev-system"`，**不要**凭空创建。
+如果为空（不存在）→ 换一个 `.c` 文件；若 `testcases/kvtest/` 整个目录在 base 上都不存在 → 进 Phase 5 报 `status=failed_to_fix`, `diagnosis.root_cause="source_missing_on_base: testcases/kvtest not in <base_ref>"`，**不要**凭空创建。
 
 **3. 直接进入 Phase 2**
 
@@ -67,10 +81,10 @@ git -C {source_root}/tests ls-tree vela/dev-system testcases/kvtest/<file>.c
 
 ### Phase 3/4/5 补充说明（同真实流程）
 
-Phase 3 修复目标分支（仍然必须）：
+Phase 3 修复目标分支（仍然必须）：从步骤 0 发现的 `<base_ref>` 切出独立分支（**不要**硬编码 `vela/dev-system`）：
 ```bash
-# 在 workspace 的 tests 仓库里
-git checkout -b ai-fix/simulation-{sid} vela/dev-system
+# 在 workspace 的 tests 仓库里；<base_ref> 来自步骤 0
+git checkout -b ai-fix/simulation-{sid} <base_ref>
 ```
 
 commit message 模板（请按此格式写，替换 `{target_file}` 为实际路径）：
@@ -88,7 +102,7 @@ JIRA: VELAPLATFO-89716
 ```
 
 Phase 4 的 `commit_in_workspace` 传 `files=["testcases/kvtest/<file>.c"]`。
-Phase 4.2 `export_patch` / Phase 5 `ai_debug_result.json` 完全同真实流程，`status="patch_generated"`，`diagnosis.exception_type="simulation"`，`diagnosis.confidence="high"`。
+Phase 4.2 `export_patch` 的 `target_branch` 传**裸分支名**（不含 remote 前缀，如 `dev-system` / `trunk-26rc01`——即 notify 给的 `{branch}`，或从 `<base_ref>` 去掉 `<remote>/` / `m/` 前缀后的部分）；工具内部会自行推导 base。Phase 5 `ai_debug_result.json` 完全同真实流程，`status="patch_generated"`，`diagnosis.exception_type="simulation"`，`diagnosis.confidence="high"`。
 
 ---
 
