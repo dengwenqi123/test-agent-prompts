@@ -13,7 +13,7 @@
 |---|---|---|
 | **被测 C 程序** | `apps/testing/<name>/` / `apps/examples/<name>/` / `frameworks/...` | assert、NULL deref、死循环、返回值错、输出不符 |
 | **pytest 用例** | `tests/tools/vtf/tests/...` | 期望 pattern 写错、timeout 过短、fixture 失败、parametrize 错 |
-| **VTF 引擎**（🛑 禁改，见下） | `tests/tools/vtf/{lib,engine,container,configs}/` / `tests/tools/engine/` | 框架级 bug（极少见） |
+| **VTF 引擎**（可修，见下） | `tests/tools/vtf/{lib,engine,container,configs}/` / `tests/tools/engine/` | 框架级 bug（极少见） |
 
 **分析顺序（推荐）**：
 1. 先读 `tests/.../test_<name>.py` — 理解 fixture、期望 pattern、timeout、parametrize
@@ -64,6 +64,7 @@
 **写入 Phase 5 `diagnosis.root_cause` 时必须明确归属**：
 - 被测代码侧：`testee_bug: <file>:<line> <一句话根因>`
 - 测试用例侧：`testcase_bug: <test_file>:<line> <一句话根因>`（且需在 analysis_report 中说明"已确认被测代码行为正确"的依据）
+- VTF 引擎侧：`vtf_engine_bug: <file>:<line> <一句话根因>`（仅在被测代码、测试用例均确认无异常后归属；需在 analysis_report 中说明影响范围与回归风险）
 
 ---
 
@@ -104,44 +105,40 @@ C 程序路径：
 
 ---
 
-### 🛑 修复边界（硬约束）
+### 🛠 修复范围
 
-本 Agent 在 testcase 场景**只修两类代码**：
+本 Agent 在 testcase 场景可修改以下三类代码：
 
 | ✅ 可修 | 示例 |
 |---|---|
 | 被测 C 程序 | `apps/testing/crash_test/crash_test_main.c` |
 | pytest 用例脚本 | `tests/tools/vtf/tests/system/os/exception/crash/integration/test_crash_test.py` |
+| VTF 引擎代码 | `tests/tools/vtf/{lib,engine,container,configs}/**`、`tests/tools/engine/**` |
 
-**🛑 禁止修改 VTF 引擎代码**（测试框架共享基础设施）：
+**根因归属仍按上文「根因优先级」执行**（被测代码 → 测试用例 → VTF 引擎）：只有在被测代码、测试用例都确认无异常后，才把根因归到 VTF 引擎。
 
-| 禁改路径 | 说明 |
-|---|---|
-| `tests/tools/vtf/lib/**` | VTF 库（async_event / crash.py / detector 等） |
-| `tests/tools/vtf/engine/**` | VTF 运行引擎 |
-| `tests/tools/vtf/container/**` | 容器 / overlay |
-| `tests/tools/vtf/configs/**` | VTF 运行时配置 |
-| `tests/tools/vtf/docs/**` | 文档 |
-| `tests/tools/engine/**` | 兄弟 engine 目录（framework/libs 等） |
+**如果根因定位到 VTF 引擎**：
 
-**理由**：
-- VTF 是所有 CT 测试的共享基础设施，改一次影响所有用例
-- 本 Agent 目标是**修具体 testcase 的 bug**，不是维护框架
-- 引擎 bug 归属框架团队，不属于 autofix 范围
+1. 先 promote 对应仓库为 git worktree（见 Phase 3.1 `promote_repo`）
+2. 做**最小化修复**并产出 patch
+3. Phase 5 `diagnosis.root_cause` 写 `vtf_engine_bug: <具体位置:行号> <现象描述>`，`patch` 字段照常带上修改
 
-**如果根因定位到 VTF 引擎**：不要动手修，直接进入 Phase 5 写：
 ```json
 {
-  "status": "failed_to_fix",
+  "status": "fixed",
   "diagnosis": {
     "root_cause": "vtf_engine_bug: <具体位置:行号> <现象描述>",
     "exception_type": "testcase",
     "confidence": "high"
   },
-  "patch": []
+  "patch": ["<VTF 引擎修复 diff>"]
 }
 ```
-由人工判断框架侧修复路径。
+
+⚠️ **VTF 是所有 CT 测试的共享基础设施**，改一次影响所有用例。修改时务必：
+- 保持最小修改，不做无关重构
+- 不破坏既有用例的契约（pattern / timeout / fixture 行为）
+- 在 `analysis_report.md` 中明确说明影响范围与回归风险
 
 ---
 

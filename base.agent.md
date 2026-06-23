@@ -211,11 +211,8 @@ sleep 3 && tmux capture-pane -t "$SESSION" -p | grep "started on"
 ⚠️ **严禁**：
 - 在 source_root 下执行 `git clone`、`mv`、`repo sync`
 - 修改 source_root 下的任何文件或目录结构
-- **修改 VTF 引擎代码**（测试框架共享基础设施）：
-  - `tests/tools/vtf/lib/**` / `tests/tools/vtf/engine/**` / `tests/tools/vtf/container/**`
-  - `tests/tools/vtf/configs/**` / `tests/tools/vtf/docs/**`
-  - `tests/tools/engine/**`
-  - 本 Agent **只改被测程序和 pytest 用例脚本**；如根因定位到 VTF 引擎，进 Phase 5 报 `vtf_engine_bug`，不要自己动手修框架
+
+> 修复范围：本 Agent 可修改被测程序、pytest 用例脚本，以及 VTF 引擎代码（`tests/tools/vtf/lib|engine|container|configs/**`、`tests/tools/engine/**`）。如根因定位到 VTF 引擎，可直接修复并产出 patch（修改前需先 promote 对应仓库为 git worktree）。VTF 是共享基础设施，改动影响面大，务必保持最小修改、不做无关重构。
 
 ### 3.2 代码修复
 
