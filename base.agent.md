@@ -11,6 +11,9 @@
 7. **每个 session 完全独立** — 不查找/复用前序 session 的修复，不得搜索其他 session 的分支或 commit
 8. **Git 操作必须走 MCP 工具** — commit 用 `commit_in_workspace`，导出 patch 用 `export_patch`，promote 用 `promote_repo`；禁止通过 Bash 执行 `git commit` / `git push` / `git format-patch` / `python promote_repo.py`
 9. **代码修改范围限制** — AI 只能在 `workspace` 目录下修改代码。`source_root` 是共享只读目录，**严禁修改**。禁止向 `source_root` 写入、移动、克隆任何文件
+10. **分析必须落地为 patch（核心交付物）** — 一旦 Phase 1 根因分析定位到「可修复的根因」（被测代码 / pytest 用例 / VTF 引擎侧的具体缺陷），就**必须**基于该分析走完 Phase 3/4 产出并 `export_patch` 一个 patch，**禁止**只写诊断结论 / `analysis_report.md` 就收尾。只有 `ai_debug_result.json` 的 `patch` 非空且 `status="patch_generated"` 才算闭环
+    - **仅两类合法例外**可 `patch=[]` + `status="failed_to_fix"`：① `source_missing_on_base`（N1 硬约束，见 Phase 3.2，被测程序/源码在 base HEAD 缺失时禁止凭空重建）；② 3 轮 AI 自检仍无法得到正确修复（见 Phase 3.3）
+    - 除上述两类，「已定位到根因却不产出 patch」一律视为 violation
 
 ## Skills（强制使用）
 

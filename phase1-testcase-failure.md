@@ -117,6 +117,8 @@ C 程序路径：
 
 **根因归属仍按上文「根因优先级」执行**（被测代码 → 测试用例 → VTF 引擎）：只有在被测代码、测试用例都确认无异常后，才把根因归到 VTF 引擎。
 
+**归属到上述任一可修类别后，必须基于分析走完 Phase 3/4 产出 patch**（见 base.agent.md 核心约束 #10）。唯一可 `patch=[]` 的例外是 N1 的 `source_missing_on_base`（被测程序/pytest 文件在 base 缺失）。
+
 **如果根因定位到 VTF 引擎**：
 
 1. 先 promote 对应仓库为 git worktree（见 Phase 3.1 `promote_repo`）
