@@ -203,13 +203,24 @@ sleep 3 && tmux capture-pane -t "$SESSION" -p | grep "started on"
 
 **promote 失败处理**：
 
-如果 promote 失败（如 `Source repo does not exist`），说明该仓库在 source_root 中不存在。此时：
-1. 在 workspace 中手动创建 git worktree：
+如果 promote 失败（如 `Source repo does not exist`），说明该仓库在 source_root 中不存在。此时在 **workspace** 中手动 clone（**严禁**放到 source_root 下）：
+
+1. 完整 clone 目标分支到 workspace 内的目标路径 `{local_path}`：
    ```bash
    cd {workspace}
-   git clone --depth 1 -b {branch} ssh://{git_user}@git.mioffice.cn:29418/{project} {local_path}
+   git clone -b {branch} ssh://git@git.mioffice.cn:29418/{project} {local_path}
    ```
-2. **严禁**将克隆的仓库放到 source_root 下
+   - SSH 用户固定为 `git`；`{project}` 为 Gerrit project 路径（不带 `.git`，如 `vela/external/ffmpeg`）
+   - **不要加 `--depth 1`**：浅克隆缺少历史，后续 patch 的 `git cherry-pick` 会因找不到父提交而失败
+   - `{local_path}` 用仓库的 workspace 相对路径（如 `external/ffmpeg`）；省略时 git 会按 URL 末段命名目录
+
+2. 如需在该仓库上叠加 Gerrit patch（fetch 指定 change 的某个 patchset 后 cherry-pick）：
+   ```bash
+   cd {workspace}/{local_path}
+   git fetch ssh://git@git.mioffice.cn:29418/{project} refs/changes/<NN>/<changeNo>/<patchset> && git cherry-pick FETCH_HEAD
+   ```
+   - `refs/changes/` 第一段 `<NN>` 是 `changeNo` 的**末两位**，第二段是完整 `changeNo`，第三段是 patchset 号
+   - 例：change `9164201`、patchset `1` → `refs/changes/01/9164201/1`
 
 ⚠️ **严禁**：
 - 在 source_root 下执行 `git clone`、`mv`、`repo sync`
