@@ -78,7 +78,9 @@
 
 **构建上下文（input_context 若提供则优先用，省去自己 find / 反推）：**
 - **`build_config_path`** — 构建实际用的 `.config`。需确认某个 Kconfig 开关时**直接读它**，不要在源码树里 `find .config` / 猜测。例：上次靠它发现 `CONFIG_MBEDTLS_SHA512_ALT=y` 这一关键事实。
-- **`build_manifest_path`** — 构建快照 manifest，记录各仓库**构建时真实 commit**。需判断「构建是否含 base 之外的改动（open patch）」时,读它取目标仓库 commit,与 `git -C <repo> rev-parse HEAD` 比对——**替代** `git merge-base` 反推。两者不一致 ⇒ 构建含 base 外 patch；若该 patch 不在 base 且无法获取 ⇒ 按 N1 走 `source_missing_on_base`，不要反复联网 fetch。
+- **`build_manifest_path`** — 构建快照 manifest，记录各仓库**构建时真实 commit**。需判断「构建是否含 base 之外的改动（open patch）」时,读它取目标仓库 commit,与 `git -C <repo> rev-parse HEAD` 比对——**替代** `git merge-base` 反推。两者不一致时分两种情况:
+  - **本地 checkout 落后**（构建 commit 是远端已合入、只是 source_root 没拉到）⇒ 先调 **`sync_repo(repo_path)`** MCP 工具把该仓库 force-sync 到最新,再重新比对 / 定位代码。sync 后若已 promote 过该仓库,需重新 `promote_repo`。
+  - **构建含未合入的 open patch**（sync 后目标 commit 仍不在本地、且无法获取）⇒ 按 N1 走 `source_missing_on_base`，**不要**反复联网 fetch。
 
 ---
 

@@ -9,7 +9,7 @@
 5. **修复后 AI 自检** — 逐行审查，确认正确后直接提交
 6. **每步输出 `[Phase N/5]` 标记**
 7. **每个 session 完全独立** — 不查找/复用前序 session 的修复，不得搜索其他 session 的分支或 commit
-8. **Git 操作必须走 MCP 工具** — commit 用 `commit_in_workspace`，导出 patch 用 `export_patch`，promote 用 `promote_repo`；禁止通过 Bash 执行 `git commit` / `git push` / `git format-patch` / `python promote_repo.py`
+8. **Git 操作必须走 MCP 工具** — commit 用 `commit_in_workspace`，导出 patch 用 `export_patch`，promote 用 `promote_repo`，更新落后的仓库用 `sync_repo`；禁止通过 Bash 执行 `git commit` / `git push` / `git format-patch` / `python promote_repo.py` / `repo sync`
 9. **代码修改范围限制** — AI 只能在 `workspace` 目录下修改代码。`source_root` 是共享只读目录，**严禁修改**。禁止向 `source_root` 写入、移动、克隆任何文件
 10. **分析必须落地为 patch（核心交付物）** — 一旦 Phase 1 根因分析定位到「可修复的根因」（被测代码 / pytest 用例 / VTF 引擎侧的具体缺陷），就**必须**基于该分析走完 Phase 3/4 产出并 `export_patch` 一个 patch，**禁止**只写诊断结论 / `analysis_report.md` 就收尾。只有 `ai_debug_result.json` 的 `patch` 非空且 `status="patch_generated"` 才算闭环
     - **仅两类合法例外**可 `patch=[]` + `status="failed_to_fix"`：① `source_missing_on_base`（N1 硬约束，见 Phase 3.2，被测程序/源码在 base HEAD 缺失时禁止凭空重建）；② 3 轮 AI 自检仍无法得到正确修复（见 Phase 3.3）
@@ -202,6 +202,14 @@ sleep 3 && tmux capture-pane -t "$SESSION" -p | grep "started on"
 - 解析后必须在 workspace 内（source_root 路径会被工具拒绝）
 - **禁止通过 Bash 调用 `python promote_repo.py`** — 工具内部做了路径加硬
 - 无 workspace 时先调用 `repoworktree` skill 创建工作空间
+
+**仓库落后于构建版本时（`sync_repo` MCP 工具）**：若 Phase 1 比对 `build_manifest_path` 发现目标仓库的构建 commit 不在本地 checkout（被测代码 / commit 缺失），先调 `sync_repo(repo_path)` 把该仓库在共享 source_root 里 force-sync 到最新：
+
+- 调用示例：`sync_repo(repo_path="apps")`
+- 必传 `repo_path`，单仓 sync（不支持全量）；刷新的是**共享 source_root**，不是你的 workspace worktree
+- sync 成功后若该仓库**已 promote 过**，需重新 `promote_repo` 让 worktree 指向新 HEAD
+- **禁止通过 Bash 执行 `repo sync`** — 工具已封装机器人凭证（含 gerrit pt/odm 的 url 重写）
+- 若 sync 后目标 commit 仍不在本地（构建含未合入的 open patch、无法获取）⇒ 按 N1 走 `source_missing_on_base`，不要反复联网 fetch
 
 **promote 失败处理**：
 
