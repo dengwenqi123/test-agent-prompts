@@ -8,8 +8,8 @@
 
 emit 任何根因结论前，**必须**先 emit `## GDB Execution Checkpoint` 块（格式与合法 skip 枚举见 base.agent.md「GDB Execution Checkpoint」章节），且满足以下任一条件：
 
-- `gdb_mode ≠ skipped`（即 A 或 B），且 `gdb_connect_done=yes`、`target_done=yes`、`bt_output_present=yes`、`ps_output_present=yes`；**或**
-- `gdb_mode=skipped` 且 `skip_reason` 命中合法枚举（`no_core_dump_and_no_gdb_port` / `gdb_target_unreachable`）
+- `gdb_mode ≠ skipped`（即 A、B 或 C），且 `gdb_connect_done=yes`、`target_done=yes`、`bt_output_present=yes`、`ps_output_present=yes`；**或**
+- `gdb_mode=skipped` 且 `skip_reason` 命中合法枚举（`no_core_dump_and_no_gdb_port` / `gdb_target_unreachable`；仿真产品无 core/port 走 Mode C 时另可命中 `pid_exited_no_core` / `attach_failed`）
 
 `gdb_mode=skipped` 且 `skip_reason` 非法（如「根因在另一核」「无对端核 ELF」「日志已足够」）→ Phase 1 视为未完成，**禁止进入 Phase 2/3**，禁止写 `analysis_report.md`，禁止 `export_patch`。
 

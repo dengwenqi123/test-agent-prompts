@@ -1,13 +1,13 @@
 ## [Phase 1/5] 根因分析 — Test Failure / 测试用例失败
 
-强制**执行**（非仅读取）**skill: crash-analysis** 和 **skill: gdb-start**；`gdb_port` 在输入 JSON 里。
+强制**执行**（非仅读取）**skill: crash-analysis** 和 **skill: gdb-start**；`gdb_port` 在输入 JSON 里。**testcase + 仿真产品（`product=sim*`/`qemu*`）且无 `core_dump_path`/`gdb_port` 但有 `pid`** 时，`pid` 是宿主进程号 → 走 **Mode C**（`attach <pid>`，见 base.agent.md「Mode 优先级」「模式 C」），不得以「无 core 无 port」为由直接 skip。
 
 ### Phase 1 出口门禁（不可跳过）
 
 emit 任何根因结论前，**必须**先 emit `## GDB Execution Checkpoint` 块（格式与合法 skip 枚举见 base.agent.md「GDB Execution Checkpoint」章节），且满足以下任一条件：
 
-- `gdb_mode ≠ skipped`（即 A 或 B），且 `gdb_connect_done=yes`、`target_done=yes`、`bt_output_present=yes`、`ps_or_info_threads_present=yes`；**或**
-- `gdb_mode=skipped` 且 `skip_reason` 命中合法枚举（`no_core_dump_and_no_gdb_port` / `gdb_target_unreachable` / `coredump_load_failed`）
+- `gdb_mode ≠ skipped`（即 A、B 或 C），且 `gdb_connect_done=yes`、`target_done=yes`、`bt_output_present=yes`、`ps_or_info_threads_present=yes`；**或**
+- `gdb_mode=skipped` 且 `skip_reason` 命中合法枚举（`no_core_dump_and_no_gdb_port` / `gdb_target_unreachable` / `coredump_load_failed` / `pid_exited_no_core` / `attach_failed`）
 
 `gdb_mode=skipped` 且 `skip_reason` 非法 → Phase 1 视为未完成，**禁止进入 Phase 2/3**，禁止写 `analysis_report.md`，禁止 `export_patch`。
 
