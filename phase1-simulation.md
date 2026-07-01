@@ -1,7 +1,7 @@
 ## [Phase 1/5] 根因分析 — Simulation / 流程冒烟验证
 
 > ⚠️ **本次 session 是 non-LLM 流水线的端到端冒烟测试，不是真实修复任务。**
-> 本 phase1 **覆盖** base.agent.md 里"必须使用 crash-analysis / gdb-start skill"的核心约束 #1。
+> 本 phase1 **覆盖** base.agent.md 里"必须使用 crash-analysis / gdb-start skill"的核心约束 #1，并**豁免**「GDB Execution Checkpoint」门禁（simulation 不做分析，禁止 emit 该 checkpoint 块，也不视为 violation）。
 > **不要**调用 `mcp__gdb-mcp__*` 任何工具，**不要**读 `crash-analysis` / `gdb-start` skill，**不要**分析 `log_path` / `elf_path` / `core_dump_path`。
 > 目标是验证 **workspace setup → promote → commit → export_patch → FDS 上传 → callback** 这条非推理链路稳定可靠。
 

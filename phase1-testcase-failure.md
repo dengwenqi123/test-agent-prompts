@@ -1,7 +1,17 @@
 ## [Phase 1/5] 根因分析 — Test Failure / 测试用例失败
 
-强制使用 **skill: crash-analysis** 和 **skill: gdb-start** 分析；`gdb_port` 在输入 JSON 里。
-若 GDB 连接失败（Remote communication error / Target disconnected），按 base.agent.md 的"GDB 失效探测"章节走源码 fallback。
+强制**执行**（非仅读取）**skill: crash-analysis** 和 **skill: gdb-start**；`gdb_port` 在输入 JSON 里。
+
+### Phase 1 出口门禁（不可跳过）
+
+emit 任何根因结论前，**必须**先 emit `## GDB Execution Checkpoint` 块（格式与合法 skip 枚举见 base.agent.md「GDB Execution Checkpoint」章节），且满足以下任一条件：
+
+- `gdb_mode ≠ skipped`（即 A 或 B），且 `gdb_connect_done=yes`、`target_done=yes`、`bt_output_present=yes`、`ps_or_info_threads_present=yes`；**或**
+- `gdb_mode=skipped` 且 `skip_reason` 命中合法枚举（`no_core_dump_and_no_gdb_port` / `gdb_target_unreachable` / `coredump_load_failed`）
+
+`gdb_mode=skipped` 且 `skip_reason` 非法 → Phase 1 视为未完成，**禁止进入 Phase 2/3**，禁止写 `analysis_report.md`，禁止 `export_patch`。
+
+**testcase 场景的 GDB 失效处理（与闭集对齐）：** 测试跑完常触发 `cpu_soft_reset` / 设备重启，socket 文件还在但对端已断。此时**必须先实际尝试** `gdb_connect(port)` + `gdb_command("target remote <gdb_port>")`（或 `bt -1` 探测）；只有当返回 `Remote communication error` / `Target disconnected` / `Broken pipe` 时，才记 `skip_reason=gdb_target_unreachable` 并按 base.agent.md「GDB 失效探测」走源码 fallback。**禁止不尝试就以「设备已 reset」为由跳过 GDB**——「已 reset」不是闭集里的合法 skip_reason，必须通过实际探测落到 `gdb_target_unreachable`。
 
 ---
 
@@ -74,7 +84,7 @@
 2. **`tests/tools/vtf/tests/.../test_<name>.py`** — pytest 源码
 3. **`apps/testing/<name>/<name>_main.c`** — 被测 C 程序源码
 4. **`elf_path` + `nm`** — 确认被测符号是否在 image 里（见 N1 硬约束）
-5. **`gdb_port`** — 设备未 reset 时可用；已 reset 时跳过，用 1-4 fallback
+5. **`gdb_port`** — 优先尝试连接；探测失败（Remote communication error / Target disconnected）时记 `skip_reason=gdb_target_unreachable` 走 1-4 fallback。禁止不探测就跳过
 
 **构建上下文（input_context 若提供则优先用，省去自己 find / 反推）：**
 - **`build_config_path`** — 构建实际用的 `.config`。需确认某个 Kconfig 开关时**直接读它**，不要在源码树里 `find .config` / 猜测。例：上次靠它发现 `CONFIG_MBEDTLS_SHA512_ALT=y` 这一关键事实。
