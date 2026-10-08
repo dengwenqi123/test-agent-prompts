@@ -10,7 +10,7 @@
 {
   "title": "tlsdump report",
   "summary": "integrity check",
-  "result": "failed",        // pass | failed
+  "result": "failed",        // pass | fail | failed
   "category": "system",       // sched | system | connectivity | ...
   "command": "tlsdump",       // 诊断命令
   "data": "..."               // 命令原始输出（字符串或数组，可能为空）
@@ -18,10 +18,12 @@
 ```
 
 分析步骤：
-1. 逐条读取，**筛出 `result == "failed"` 的子报告** —— 这些是根因的直接候选。
+1. 逐条读取，**筛出 `result ∈ {"fail", "failed"}` 的子报告**（两种取值都计为失败，只筛 "failed" 会漏掉 "fail" 项）—— 这些是根因的直接候选。
 2. 对每个失败项，结合 `category` / `command` / `data` 判断故障子系统（如 `sched` 死锁、`system` 完整性、`connectivity` socket 泄漏）。
 3. `result == "pass"` 的项作为排除项，帮助缩小范围（如死锁报告 pass 可排除调度死锁）。
 4. `extra_context.state_reason` 通常给出触发原因（如 `Reboot diagnose found issues`）。
+
+> ⚠️ 筛出失败子报告后，**先按 base.agent.md「知识库检索（Knowledge Base Routing）」完成匹配**再分析：diagnose 子报告失败（mm leak / memcheck 等）必读 `common_knowledge/debugging/diagnose_failure_analysis.md`，按其规则逐失败项做可审计结论（verdict 表）。**禁止以把子报告 `result` 从 `fail` 降级为 `warn`/`pass` 作为修复**（含修改 nxgdb 诊断工具的 result 判定）——消费方只认 fail，降级等于静默清除告警；`alive=false` 的块是常见真泄漏形态，不是误报信号。
 
 ### 2. 结合 GDB / 日志深入定位
 

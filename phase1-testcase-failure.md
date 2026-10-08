@@ -112,6 +112,7 @@ C 程序路径：
 ### 根因定位清单（Phase 1 完成前必须全打勾）
 
 - [ ] pytest 用例文件已完整 Read，记录：fixture 行为、期望 pattern、timeout 秒数
+- [ ] **知识库检索已完成**：按本 case 话题匹配文档、emit `## Knowledge Base Routing` 块并遵守命中文档中的规则（见 base.agent.md「知识库检索」）。涉及 diagnose 子报告（mm leak / memcheck 等）时必读 `common_knowledge/debugging/diagnose_failure_analysis.md`，**禁止以把子报告 result 从 fail 降级为 warn 作为修复**
 - [ ] 被测 C 程序 `_main` 函数及被触发调用链已完整 Read（禁止只看片段凭函数名猜）
 - [ ] **"pytest 期望 vs C 程序实际输出"的 diff 已用文字写清楚**
 - [ ] **Step 1（被测代码侧）已完成**：返回值 / 日志 / crash / 竞态 / 资源 / 依赖配置逐项核查
