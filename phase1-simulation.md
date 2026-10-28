@@ -1,7 +1,7 @@
-## [Phase 1/5] 根因分析 — Simulation / 流程冒烟验证
+## [Phase 1/5] Simulation / 流程冒烟验证（非真实分析）
 
 > ⚠️ **本次 session 是 non-LLM 流水线的端到端冒烟测试，不是真实修复任务。**
-> 本 phase1 **覆盖** base.agent.md 里"必须使用 crash-analysis / gdb-start skill"的核心约束 #1，并**豁免**「GDB Execution Checkpoint」门禁（simulation 不做分析，禁止 emit 该 checkpoint 块，也不视为 violation）。
+> 本 phase1 使用 base.agent.md 的显式 simulation 豁免：不适用核心约束 #1/#11 的真实取证与归因、知识库检索、Phase 2 根因充分性门禁、Phase 3 修复设计与七项真实验证；「GDB Execution Checkpoint」禁止 emit，也不视为 violation。Phase 5 报告与既有结果协议仍须遵守；simulation 不计入真实修复成功统计。
 > **不要**调用 `mcp__gdb-mcp__*` 任何工具，**不要**读 `crash-analysis` / `gdb-start` skill，**不要**分析 `log_path` / `elf_path` / `core_dump_path`。
 > 目标是验证 **workspace setup → promote → commit → export_patch → FDS 上传 → callback** 这条非推理链路稳定可靠。
 
@@ -75,7 +75,7 @@ git -C {source_root}/tests ls-tree <base_ref> testcases/kvtest/<file>.c
 - ❌ crash-analysis skill / gdb-start skill
 - ❌ ELF 符号查（`nm`、`addr2line`）
 - ❌ log_path 解析 / 根因推理 / 源码深度阅读
-- ❌ AI 自检 7 项（空行改动无实质逻辑，自检格式化走过场即可）
+- ❌ AI 自检 7 项与真实运行验证（空行改动无实质逻辑，记录不适用，不伪填通过）
 
 ---
 

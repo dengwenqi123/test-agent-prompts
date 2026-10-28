@@ -1,15 +1,10 @@
-## [Phase 1/5] 根因分析 — Test Failure / 测试用例失败
+## [Phase 1/5] 现场与机制分析 — Test Failure / 测试用例失败
 
 强制**执行**（非仅读取）**skill: crash-analysis** 和 **skill: gdb-start**；`gdb_port` 在输入 JSON 里。**testcase + 仿真产品（`product=sim*`/`qemu*`）且无 `core_dump_path`/`gdb_port` 但有 `pid`** 时，`pid` 是宿主进程号 → 走 **Mode C**（`attach <pid>`，见 base.agent.md「Mode 优先级」「模式 C」），不得以「无 core 无 port」为由直接 skip。
 
 ### Phase 1 出口门禁（不可跳过）
 
-emit 任何根因结论前，**必须**先 emit `## GDB Execution Checkpoint` 块（格式与合法 skip 枚举见 base.agent.md「GDB Execution Checkpoint」章节），且满足以下任一条件：
-
-- `gdb_mode ≠ skipped`（即 A、B 或 C），且 `gdb_connect_done=yes`、`target_done=yes`、`bt_output_present=yes`、`ps_or_info_threads_present=yes`；**或**
-- `gdb_mode=skipped` 且 `skip_reason` 命中合法枚举（`no_core_dump_and_no_gdb_port` / `gdb_target_unreachable` / `coredump_load_failed` / `pid_exited_no_core` / `attach_failed`）
-
-`gdb_mode=skipped` 且 `skip_reason` 非法 → Phase 1 视为未完成，**禁止进入 Phase 2/3**，禁止写 `analysis_report.md`，禁止 `export_patch`。
+按 base.agent.md「GDB Execution Checkpoint」记录取证；字段、合法 skip 枚举与证据要求均复用公共定义，不另设闭集。**取证完成不等于根因正确**；取证未完成须记录实际失败，可补取证或进入 Phase 5 写 `analysis_report.md` 未完成报告，不能绕过门禁导出 patch。
 
 **testcase 场景的 GDB 失效处理（与闭集对齐）：** 测试跑完常触发 `cpu_soft_reset` / 设备重启，socket 文件还在但对端已断。此时**必须先实际尝试** `gdb_connect(port)` + `gdb_command("target remote <gdb_port>")`（或 `bt -1` 探测）；只有当返回 `Remote communication error` / `Target disconnected` / `Broken pipe` 时，才记 `skip_reason=gdb_target_unreachable` 并按 base.agent.md「GDB 失效探测」走源码 fallback。**禁止不尝试就以「设备已 reset」为由跳过 GDB**——「已 reset」不是闭集里的合法 skip_reason，必须通过实际探测落到 `gdb_target_unreachable`。
 
@@ -36,47 +31,13 @@ emit 任何根因结论前，**必须**先 emit `## GDB Execution Checkpoint` �
 
 ### 根因优先级（Root Cause Priority，硬约束）
 
-> 本节是 base.agent.md 核心约束 #11「先查 C 代码，再查 python 用例」的详细展开；两处冲突时以本节为准。
+> 本节委托 base.agent.md 核心约束 #11 与公共 Phase 2 根因充分性门禁，不覆盖公共规则。优先查交付物是调查顺序，不是发现首个缺陷就停止的归因规则。
 
-**默认假设根因在被测代码（项目代码）侧**。只有当被测代码经完整核查确认无异常后，才允许把根因归到测试用例本身。
-
-**顺序不可颠倒的理由**：
-- 被测代码是交付物，用例是验收手段；交付物有 bug 的概率远高于验收手段
-- 先怀疑用例容易"改用例掩盖真 bug"（把 assert 放宽、timeout 拉长、pattern 改松），让回归用例失去护栏作用
-- 用例问题通常表现为"期望/触发/匹配"的 contract 偏差，而非功能性错误；只有在被测代码侧找不到对得上的异常行为时，这种偏差才是真根因
-
-**两步判定**：
-
-1. **Step 1 — 被测代码侧核查**（必须先做，不可跳过）
-   - 完整读 `_main` 及被触发的全部调用链（禁止只看片段）
-   - 核对以下潜在问题：
-     - 返回值 / 错误码 / exit code 是否与用例期望一致
-     - 打印/日志的**文本、顺序、次数、时序**是否与 pytest 期望的 pattern 吻合
-     - 是否存在 crash / assert / NULL deref / 越界 / 资源泄漏 / 死循环
-     - 是否存在竞态（race）、未初始化、未处理的 errno / signal
-     - 依赖的配置、Kconfig、设备节点是否齐全
-   - 若发现任一问题 → **根因归属被测代码**，进入 Phase 2/3 修 C 程序；不再继续 Step 2
-   - 若确认被测代码行为完全符合"被测意图"（功能正确），再进入 Step 2
-
-2. **Step 2 — 测试用例侧核查**（仅在 Step 1 通过后执行）
-   - 逐项核查 pytest 脚本：
-     - 期望的 pattern / 正则是否贴合被测程序的真实输出（大小写、空格、换行、多行模式）
-     - `timeout` 是否过短（尤其慢板子 / 冷启动 / 首次加载）
-     - fixture / setup / teardown 的前置条件是否满足（mount、网络、设备节点）
-     - `parametrize` 参数集合、`marks`、`skip_if` 是否正确
-     - 断言顺序与实际日志产生顺序是否一致（async 场景特别注意）
-   - 若发现问题 → 根因归属测试用例，修 pytest 脚本
-
-**禁止行为（violation）**：
-- ❌ 跳过 Step 1 直接改 pytest 脚本
-- ❌ 以"用例期望写得不合理"为由放宽断言，而未先确认被测代码的实际行为是否本该如此
-- ❌ 在 Step 1 未完成时并行修两边（双改会掩盖真根因，且引入回归盲区）
-- ❌ 仅凭函数名或日志片段就断定"用例 pattern 写错"，未完整读被测 `_main` 和调用链
-
-**写入 Phase 5 `diagnosis.root_cause` 时必须明确归属**：
-- 被测代码侧：`testee_bug: <file>:<line> <一句话根因>`
-- 测试用例侧：`testcase_bug: <test_file>:<line> <一句话根因>`（且需在 analysis_report 中说明"已确认被测代码行为正确"的依据）
-- VTF 引擎侧：`vtf_engine_bug: <file>:<line> <一句话根因>`（仅在被测代码、测试用例均确认无异常后归属；需在 analysis_report 中说明影响范围与回归风险）
+- **交付物核查不可跳过**：完整读 `_main` 与相关调用链，核查返回值 / exit code、日志文本/顺序/次数/时序、crash / 竞态 / 资源、配置与设备依赖。读不到的代码如实记为证据缺口
+- **契约对照**：核查 pytest pattern、timeout、fixture/setup/teardown、parametrize/marks、断言顺序；由接口/规范/既有正确行为证明契约，不能仅拿当前输出当正确答案
+- **因果扩展**：发现 C 异常后仍追踪状态来源、生命周期与时序，可调查相关 fixture、服务、驱动、其他线程/核/系统与 VTF 引擎；多个独立缺陷分别论证，不能预设只有一处根因
+- **禁止掩盖问题**：不得跳过交付物核查直接改 pytest，不得为用例通过而放宽断言 / 拉长 timeout / 放松 pattern / 加 skip；没有独立证据不得多层一起改
+- **归属与限制**：`diagnosis.root_cause` 的归属前缀、多缺陷和 unknown 表述复用 base #11；归用例或引擎时，报告已核查交付物范围、契约证据、为何解释本次失败及仍未排除因素，不能宣称所有 C 代码无异常
 
 ---
 
@@ -109,18 +70,15 @@ C 程序路径：
 
 ---
 
-### 根因定位清单（Phase 1 完成前必须全打勾）
+### 现场与契约清单（Phase 1 交接）
 
-- [ ] pytest 用例文件已完整 Read，记录：fixture 行为、期望 pattern、timeout 秒数
-- [ ] **知识库检索已完成**：按本 case 话题匹配文档、emit `## Knowledge Base Routing` 块并遵守命中文档中的规则（见 base.agent.md「知识库检索」）。涉及 diagnose 子报告（mm leak / memcheck 等）时必读 `common_knowledge/debugging/diagnose_failure_analysis.md`，**禁止以把子报告 result 从 fail 降级为 warn 作为修复**
-- [ ] 被测 C 程序 `_main` 函数及被触发调用链已完整 Read（禁止只看片段凭函数名猜）
-- [ ] **"pytest 期望 vs C 程序实际输出"的 diff 已用文字写清楚**
-- [ ] **Step 1（被测代码侧）已完成**：返回值 / 日志 / crash / 竞态 / 资源 / 依赖配置逐项核查
-  - 若发现被测代码异常 → `root_cause` 归属 `testee_bug:...`，**跳过 Step 2**
-- [ ] **Step 2（测试用例侧）仅在 Step 1 确认无异常后执行**：pattern / timeout / fixture / parametrize / 断言顺序逐项核查
-  - 归属 `testcase_bug:...` 时，analysis_report 必须说明"已确认被测代码行为正确"的依据
-- [ ] **N1 前置**：`git ls-tree <base_ref> <C程序目录>` 和 `git ls-tree <base_ref> <pytest文件>` 都非空
-  若任一为空 → 立即进入 Phase 5 报 `source_missing_on_base`
+逐项附证据与缺口，未完成不得强行打勾；只在公共 Phase 2 通过根因充分性门禁后确认根因。
+
+- [ ] pytest 用例及相关被测 C 函数已完整 Read，记录 fixture、期望 pattern、timeout 与触发路径
+- [ ] **知识库检索已完成**：按话题 emit `## Knowledge Base Routing`，diagnose 子报告失败适用 base 内联禁令，不得降级 result 掩盖异常
+- [ ] 已写清「期望契约 vs 实际行为」，逐项核查返回值 / 日志 / crash / 竞态 / 资源 / 依赖配置
+- [ ] 已记录直接机制、候选原因及反证，旁支缺陷与本次触发链的关联尚未证实则单列，继续调查相关层而非停查
+- [ ] **N1 前置**：`git ls-tree <base_ref> <C程序目录>` 和 `git ls-tree <base_ref> <pytest文件>` 都非空；任一为空则进入 Phase 5 报 `source_missing_on_base`、`patch=[]`，禁止重建。其他证据/权限边界也可按公共规则报告停止
 
 ---
 
@@ -134,27 +92,9 @@ C 程序路径：
 | pytest 用例脚本 | `tests/tools/vtf/tests/system/os/exception/crash/integration/test_crash_test.py` |
 | VTF 引擎代码 | `tests/tools/vtf/{lib,engine,container,configs}/**`、`tests/tools/engine/**` |
 
-**根因归属仍按上文「根因优先级」执行**（被测代码 → 测试用例 → VTF 引擎）：只有在被测代码、测试用例都确认无异常后，才把根因归到 VTF 引擎。
+**根因归属、候选提交与结果协议均复用 base.agent.md** 核心约束 #10/#11、Phase 2/3 门禁与 Phase 5 示例；找到局部缺陷不强制产 patch，N1 不是唯一允许无候选的原因。
 
-**归属到上述任一可修类别后，必须基于分析走完 Phase 3/4 产出 patch**（见 base.agent.md 核心约束 #10）。唯一可 `patch=[]` 的例外是 N1 的 `source_missing_on_base`（被测程序/pytest 文件在 base 缺失）。
-
-**如果根因定位到 VTF 引擎**：
-
-1. 先 promote 对应仓库为 git worktree（见 Phase 3.1 `promote_repo`）
-2. 做**最小化修复**并产出 patch
-3. Phase 5 `diagnosis.root_cause` 写 `vtf_engine_bug: <具体位置:行号> <现象描述>`，`patch` 字段照常带上修改
-
-```json
-{
-  "status": "fixed",
-  "diagnosis": {
-    "root_cause": "vtf_engine_bug: <具体位置:行号> <现象描述>",
-    "exception_type": "testcase",
-    "confidence": "high"
-  },
-  "patch": ["<VTF 引擎修复 diff>"]
-}
-```
+若有充分证据归因到 VTF 引擎，先按公共 Phase 3 设计与验证，再决定是否进入 Phase 4；提交前仍须 promote。`diagnosis.root_cause` 用 `vtf_engine_bug: <位置与契约原因>`，未证实归属则如实写 unknown。`status` 仅用 `patch_generated` / `failed_to_fix`；`patch` 沿用公共的仓库对象数组，无候选统一 `[]`，不另设字符串 diff 示例。
 
 ⚠️ **VTF 是所有 CT 测试的共享基础设施**，改一次影响所有用例。修改时务必：
 - 保持最小修改，不做无关重构
@@ -163,4 +103,4 @@ C 程序路径：
 
 ---
 
-**自动进入 Phase 2。**
+**按 base.agent.md 公共 Phase 2 根因充分性门禁 → Phase 3 修复设计与验证 → Phase 5 报告推进；证据不足可报告停止，不强制产 patch。**
